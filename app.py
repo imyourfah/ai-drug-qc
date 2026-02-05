@@ -162,21 +162,26 @@ if active_model and sheet_url:
                 with st.spinner(f"กำลังส่งข้อมูลให้ {active_model} วิเคราะห์..."):
                     model = genai.GenerativeModel(active_model)
                     
-                    prompt = f"""
-                    Role: Expert QC Pharmacist.
-                    Input DB: {db_context}
-                    Task: 
-                    1. Analyze ALL images as one COA document.
-                    2. Identify Drug Name.
-                    3. Extract Results & Compare with DB Spec.
-                    
-                    Universal Rules:
-                    - Range: Strict math check.
-                    - Limits: NMT/NLT check.
-                    - Ph. Eur. Color: B(X) -> Higher X is better (Pass). B1-B5 Fail.
-                    
-                    Output: Markdown Table.
-                    """
+                    # แก้ไข Prompt ให้สั่งใส่อิโมจิ ✅ / ❌
+                prompt = f"""
+                Role: Expert QC Pharmacist.
+                Input DB: {db_context}
+                Task: 
+                1. Analyze ALL images as one COA document.
+                2. Identify Drug Name.
+                3. Extract Results & Compare with DB Spec.
+                
+                Universal Rules:
+                - Range: Strict math check.
+                - Limits: NMT/NLT check.
+                - Ph. Eur. Color: B(X) -> Higher X is better (Pass). B1-B5 Fail.
+                
+                Output Requirements:
+                - Generate a Markdown Table.
+                - Add a specific column named "Status".
+                - In "Status" column: USE ONLY "PASS ✅" or "FAIL ❌".
+                - If the Drug Name doesn't match the DB, mark as "N/A ⚠️".
+                """
                     
                     try:
                         response = model.generate_content([prompt, *all_images])
