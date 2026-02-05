@@ -25,6 +25,26 @@ def clear_spec_images():
     st.session_state['spec_images'] = []
     st.session_state['spec_key'] += 1
 
+# 🔥 ฟังก์ชันใหม่: เลือกโมเดลให้อัตโนมัติ (Auto-Select)
+def get_auto_model():
+    try:
+        model_list = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                model_list.append(m.name)
+        
+        # สูตรการเลือก: เอา Flash ก่อน (เร็ว/แม่น) -> ถ้าไม่มีเอา Pro -> ถ้าไม่มีเอาอะไรก็ได้ที่เป็น Gemini
+        for m in model_list:
+            if 'gemini-1.5-flash' in m: return m
+        for m in model_list:
+            if 'gemini-1.5-pro' in m: return m
+        for m in model_list:
+            if 'gemini' in m: return m
+            
+        return 'models/gemini-1.5-flash' # Default เผื่อหาไม่เจอเลย
+    except:
+        return 'models/gemini-1.5-flash' # Default กรณี Error
+
 @st.cache_resource
 def connect_google_sheet():
     try:
@@ -64,7 +84,15 @@ with st.sidebar:
 # MAIN APP
 # ==========================================
 if api_key and sheet_url:
+    # 1. Configure API
     genai.configure(api_key=api_key)
+    
+    # 2. ให้ AI เลือกโมเดลที่ดีที่สุด ณ ตอนนั้นให้เลย
+    active_model_name = get_auto_model() 
+    
+    # แสดงให้ User อุ่นใจว่าใช้ตัวไหนอยู่
+    st.sidebar.info(f"🧠 AI Model: `{active_model_name}`")
+
     gc = connect_google_sheet()
     
     # โหลดข้อมูล
@@ -83,7 +111,7 @@ if api_key and sheet_url:
     # ----------------------------------------------------
     if app_mode == "🕵️‍♀️ ตรวจสอบ QC (Checker)":
         st.subheader("🕵️‍♀️ ตรวจสอบคุณภาพยา (QC Checker)")
-        st.info(f"📚 ฐานข้อมูล: {len(df)} รายการ")
+        st.caption(f"Powered by: {active_model_name}") # โชว์ชื่อรุ่นตรงหัวข้อด้วย
         
         tab1, tab2 = st.tabs(["📂 Upload COA", "📷 Camera"])
         qc_images = []
@@ -108,10 +136,10 @@ if api_key and sheet_url:
                     qc_images.extend(st.session_state['camera_images'])
 
         if qc_images and st.button("🚀 Run QC Check", type="primary"):
-            with st.spinner("AI Checking..."):
-                model = genai.GenerativeModel('gemini-1.5-flash')
+            with st.spinner(f"Using {active_model_name} analyzing..."):
+                # ใช้ตัวแปร active_model_name ที่ AI เลือกมาให้
+                model = genai.GenerativeModel(active_model_name)
                 
-                # --- PROMPT ที่แก้ให้แล้ว (ย่อหน้าถูกต้อง + มีอิโมจิ) ---
                 prompt = f"""
                 Role: Expert QC Pharmacist.
                 Input DB: {db_context}
@@ -136,7 +164,6 @@ if api_key and sheet_url:
                     response = model.generate_content([prompt, *qc_images])
                     st.markdown(response.text)
                     
-                    # สรุปผลตัวใหญ่
                     if "❌" in response.text:
                         st.error("❌ QC FAILED: มีรายการไม่ผ่านเกณฑ์", icon="🚨")
                     else:
@@ -174,8 +201,10 @@ if api_key and sheet_url:
 
         if spec_input_images:
             if st.button("✨ แกะข้อมูลจากรูป"):
-                with st.spinner("Reading Spec..."):
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                with st.spinner("AI Extracting..."):
+                    # ใช้ตัวแปร active_model_name ที่ AI เลือกมาให้
+                    model = genai.GenerativeModel(active_model_name)
+                    
                     prompt = "Extract Drug Name and Full Spec details. Output format: Name: [Name] ### [Details]"
                     try:
                         res = model.generate_content([prompt, *spec_input_images])
