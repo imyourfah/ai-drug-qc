@@ -7,8 +7,8 @@ from PIL import Image
 import datetime
 
 # 1. ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="AI Pharma Super App", page_icon="💊", layout="wide")
-st.title("🏥 AI Pharma Hub: ระบบตรวจ QC และจัดการฐานข้อมูล")
+st.set_page_config(page_title="AI COA-Spec Super App", page_icon="💊", layout="wide")
+st.title("🏥 ระบบตรวจสอบ COA และจัดการฐานข้อมูล specification")
 
 # --- Initialize Session State ---
 if 'camera_images' not in st.session_state: st.session_state['camera_images'] = []
@@ -63,7 +63,7 @@ def connect_google_sheet():
 # ==========================================
 with st.sidebar:
     st.header("🎮 Menu")
-    app_mode = st.radio("เลือกโหมดทำงาน:", ["🕵️‍♀️ ตรวจสอบ QC (Checker)", "➕ เพิ่มยาใหม่ (Update DB)"])
+    app_mode = st.radio("เลือกโหมดทำงาน:", ["🕵️‍♀️ ตรวจสอบ COA (Checker)", "➕ เพิ่มยาใหม่ (Update DB)"])
     
     st.markdown("---")
     st.header("⚙️ Config")
@@ -109,7 +109,7 @@ if api_key and sheet_url:
     # ----------------------------------------------------
     # MODE 1: 🕵️‍♀️ ตรวจสอบ QC (Checker)
     # ----------------------------------------------------
-    if app_mode == "🕵️‍♀️ ตรวจสอบ QC (Checker)":
+    if app_mode == "🕵️‍♀️ ตรวจสอบ COA (Checker)":
         st.subheader("🕵️‍♀️ ตรวจสอบคุณภาพยา (QC Checker)")
         st.caption(f"Powered by: {active_model_name}") # โชว์ชื่อรุ่นตรงหัวข้อด้วย
         
@@ -135,7 +135,7 @@ if api_key and sheet_url:
                     if st.button("🗑️ Clear", on_click=clear_cam_images): st.rerun()
                     qc_images.extend(st.session_state['camera_images'])
 
-        if qc_images and st.button("🚀 Run QC Check", type="primary"):
+        if qc_images and st.button("🚀 Run COA Check", type="primary"):
             with st.spinner(f"Using {active_model_name} analyzing..."):
                 # ใช้ตัวแปร active_model_name ที่ AI เลือกมาให้
                 model = genai.GenerativeModel(active_model_name)
