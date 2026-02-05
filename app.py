@@ -1,168 +1,117 @@
 import streamlit as st
 import google.generativeai as genai
+import gspread
+from google.oauth2.service_account import Credentials
 import pandas as pd
 from PIL import Image
+import datetime
 
 # 1. ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="AI QC Super App", page_icon="🧬", layout="wide")
-st.title("🏥 AI Pharma QC: ระบบตรวจ COA (All-in-One)")
+st.set_page_config(page_title="AI Pharma Super App", page_icon="💊", layout="wide")
+st.title("🏥 AI Pharma Hub: ระบบตรวจ QC และจัดการฐานข้อมูล")
 
-# --- ประกาศตัวแปร Global ไว้ก่อน (กัน Error) ---
-active_model = None 
-api_key = None
-sheet_url = None
+# --- Initialize Session State ---
+if 'camera_images' not in st.session_state: st.session_state['camera_images'] = []
+if 'camera_key' not in st.session_state: st.session_state['camera_key'] = 0
+if 'spec_images' not in st.session_state: st.session_state['spec_images'] = []
+if 'spec_key' not in st.session_state: st.session_state['spec_key'] = 0
 
-# --- ระบบความจำสำหรับกล้อง (Session State) ---
-if 'camera_images' not in st.session_state:
-    st.session_state['camera_images'] = [] 
-if 'camera_key' not in st.session_state:
-    st.session_state['camera_key'] = 0     
-
-def clear_images():
+# --- Functions ---
+def clear_cam_images():
     st.session_state['camera_images'] = []
     st.session_state['camera_key'] += 1
 
-# --- ฟังก์ชันช่วย: หาโมเดลที่ดีที่สุด ---
-def get_best_model():
-    model_name = None
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                if 'gemini' in m.name and 'vision' not in m.name:
-                    model_name = m.name
-                    if 'flash' in m.name: 
-                        break
-        if not model_name: 
-            model_name = 'models/gemini-1.5-flash'
-        return model_name
-    except:
-        return None
+def clear_spec_images():
+    st.session_state['spec_images'] = []
+    st.session_state['spec_key'] += 1
 
-# --- ฟังก์ชันช่วย: โหลด Database (เพิ่ม Cache TTL=60 วิ) ---
-@st.cache_data(ttl=60)
-def load_data(url):
+@st.cache_resource
+def connect_google_sheet():
     try:
-        csv_url = url.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit', '/export?format=csv')
-        df = pd.read_csv(csv_url)
-        return df
-    except:
+        if "gcp_service_account" in st.secrets:
+            scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+            client = gspread.authorize(creds)
+            return client
+        else:
+            return None
+    except Exception as e:
         return None
 
 # ==========================================
-# SIDEBAR: ตั้งค่า & เชื่อมต่อ
+# SIDEBAR
 # ==========================================
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    
-    # 1. พยายามดึง Key จาก Secrets ก่อน
-    if "GEMINI_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_KEY"]
-    else:
-        # ถ้าไม่มีใน Secrets ให้กรอกเอง (สำรอง)
-        api_key = st.text_input("Gemini API Key", type="password")
-
-    # 2. พยายามดึง Link จาก Secrets ก่อน
-    if "SHEET_LINK" in st.secrets:
-        sheet_url = st.secrets["SHEET_LINK"]
-    else:
-        sheet_url = st.text_input("Link Google Sheet")
+    st.header("🎮 Menu")
+    app_mode = st.radio("เลือกโหมดทำงาน:", ["🕵️‍♀️ ตรวจสอบ QC (Checker)", "➕ เพิ่มยาใหม่ (Update DB)"])
     
     st.markdown("---")
+    st.header("⚙️ Config")
     
-    # ปุ่มอัปเดตข้อมูล (Clear Cache)
-    if st.button("🔄 อัปเดตฐานข้อมูล (Refresh)"):
-        st.cache_data.clear()
-        st.rerun()
-
-    st.header("📡 System Status")
-    
-    # 3. เริ่มเชื่อมต่อ (สร้าง active_model ตรงนี้)
-    if api_key and sheet_url:
-        try:
-            genai.configure(api_key=api_key)
-            active_model = get_best_model() # <--- จุดสำคัญ! ห้ามหาย
-            
-            if active_model:
-                st.success(f"✅ Connected!")
-                st.info(f"🧠 Model: **{active_model}**")
-            else:
-                st.error("❌ API Key ผิด หรือเชื่อมต่อไม่ได้")
-        except Exception as e:
-             st.error(f"❌ Connection Error: {e}")
+    if "GEMINI_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_KEY"]
+        st.success("🔑 API Key: Ready")
     else:
-        st.warning("⚠️ กรุณาตั้งค่า Key และ Link")
+        api_key = st.text_input("Gemini API Key", type="password")
+
+    if "SHEET_LINK" in st.secrets:
+        sheet_url = st.secrets["SHEET_LINK"]
+        st.success("📄 Sheet: Ready")
+    else:
+        sheet_url = st.text_input("Link Google Sheet")
 
 # ==========================================
 # MAIN APP
 # ==========================================
-# ตรวจสอบว่าตัวแปรมีค่าครบไหม
-if active_model and sheet_url:
-    # โหลด Database
-    df = load_data(sheet_url)
+if api_key and sheet_url:
+    genai.configure(api_key=api_key)
+    gc = connect_google_sheet()
     
-    if df is not None:
-        # เตรียม Context
+    # โหลดข้อมูล
+    try:
+        csv_url = sheet_url.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit', '/export?format=csv')
+        df = pd.read_csv(csv_url)
         db_context = ""
         for index, row in df.iterrows():
-            if len(row) >= 3:
-                db_context += f"Drug: {row[1]} | Spec: {row[2]}\n"
-        
-        st.success(f"📚 ฐานข้อมูลพร้อม: มียา {len(df)} รายการ")
-        
-        # --- ส่วนรับรูปภาพ (TABs) ---
-        st.subheader("📸 นำเข้าใบ COA")
-        
-        tab1, tab2 = st.tabs(["📂 อัปโหลดไฟล์ (Upload)", "📷 ถ่ายรูป (Camera)"])
-        
-        all_images = [] 
+            if len(row) >= 3: db_context += f"Drug: {row[1]} | Spec: {row[2]}\n"
+    except:
+        df = pd.DataFrame()
+        db_context = ""
 
-        # Tab 1: Upload File
+    # ----------------------------------------------------
+    # MODE 1: 🕵️‍♀️ ตรวจสอบ QC (Checker)
+    # ----------------------------------------------------
+    if app_mode == "🕵️‍♀️ ตรวจสอบ QC (Checker)":
+        st.subheader("🕵️‍♀️ ตรวจสอบคุณภาพยา (QC Checker)")
+        st.info(f"📚 ฐานข้อมูล: {len(df)} รายการ")
+        
+        tab1, tab2 = st.tabs(["📂 Upload COA", "📷 Camera"])
+        qc_images = []
+
         with tab1:
-            uploaded_files = st.file_uploader("เลือกไฟล์รูปภาพ (ได้หลายไฟล์)", 
-                                            type=["jpg", "png", "jpeg"], 
-                                            accept_multiple_files=True)
-            if uploaded_files:
-                for f in uploaded_files:
-                    all_images.append(Image.open(f))
+            files = st.file_uploader("Upload COA Images", accept_multiple_files=True, key="qc_up")
+            if files: 
+                for f in files: qc_images.append(Image.open(f))
 
-        # Tab 2: Camera Input
         with tab2:
-            col_cam, col_preview = st.columns([1, 2])
-            
-            with col_cam:
-                st.write("📸 **ถ่ายทีละรูป**")
-                pic = st.camera_input("Take Photo", key=f"cam_{st.session_state['camera_key']}")
-                
-                if pic:
-                    st.session_state['camera_images'].append(Image.open(pic))
+            col_c, col_p = st.columns([1,2])
+            with col_c:
+                cam = st.camera_input("Take Photo", key=f"qc_cam_{st.session_state['camera_key']}")
+                if cam:
+                    st.session_state['camera_images'].append(Image.open(cam))
                     st.session_state['camera_key'] += 1
                     st.rerun()
-
-            with col_preview:
+            with col_p:
                 if st.session_state['camera_images']:
-                    st.write(f"✅ ถ่ายไว้แล้ว {len(st.session_state['camera_images'])} รูป")
-                    all_images.extend(st.session_state['camera_images'])
                     st.image(st.session_state['camera_images'], width=100)
-                    
-                    if st.button("🗑️ ล้างรูปทั้งหมด", on_click=clear_images):
-                        st.rerun()
+                    if st.button("🗑️ Clear", on_click=clear_cam_images): st.rerun()
+                    qc_images.extend(st.session_state['camera_images'])
 
-        # --- ส่วนแสดงผลและปุ่มกด ---
-        if all_images:
-            st.markdown("---")
-            st.write(f"📂 **พร้อมตรวจสอบทั้งหมด: {len(all_images)} ภาพ**")
-            
-            cols = st.columns(min(len(all_images), 3))
-            for idx, img in enumerate(all_images):
-                with cols[idx % 3]:
-                    st.image(img, caption=f"Img {idx+1}", use_column_width=True)
-            
-            # ปุ่ม Run
-            if st.button("🚀 เริ่มตรวจสอบ (Analyze All)", type="primary"):
-                with st.spinner(f"กำลังส่งข้อมูลให้ {active_model} วิเคราะห์..."):
-                    model = genai.GenerativeModel(active_model)
-                    
-                    # แก้ไข Prompt ให้สั่งใส่อิโมจิ ✅ / ❌
+        if qc_images and st.button("🚀 Run QC Check", type="primary"):
+            with st.spinner("AI Checking..."):
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
+                # --- PROMPT ที่แก้ให้แล้ว (ย่อหน้าถูกต้อง + มีอิโมจิ) ---
                 prompt = f"""
                 Role: Expert QC Pharmacist.
                 Input DB: {db_context}
@@ -178,23 +127,79 @@ if active_model and sheet_url:
                 
                 Output Requirements:
                 - Generate a Markdown Table.
-                - Add a specific column named "Status".
-                - In "Status" column: USE ONLY "PASS ✅" or "FAIL ❌".
-                - If the Drug Name doesn't match the DB, mark as "N/A ⚠️".
+                - Add a column "Status".
+                - In "Status": USE ONLY "PASS ✅" or "FAIL ❌".
+                - If Drug Name doesn't match DB, mark "FAIL ❌".
                 """
+                
+                try:
+                    response = model.generate_content([prompt, *qc_images])
+                    st.markdown(response.text)
                     
-                    try:
-                        response = model.generate_content([prompt, *all_images])
-                        st.markdown(response.text)
-                        if "PASS" in response.text:
-                            st.balloons()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-        else:
-            st.info("👈 กรุณาอัปโหลดไฟล์ หรือถ่ายรูปก่อนกดตรวจสอบครับ")
+                    # สรุปผลตัวใหญ่
+                    if "❌" in response.text:
+                        st.error("❌ QC FAILED: มีรายการไม่ผ่านเกณฑ์", icon="🚨")
+                    else:
+                        st.success("✅ QC PASSED: ผ่านทุกรายการ", icon="✅")
+                        st.balloons()
+                except Exception as e: st.error(e)
 
-    else:
-        st.error("❌ อ่าน Google Sheet ไม่ได้ (เช็ค Link นะครับ)")
+    # ----------------------------------------------------
+    # MODE 2: ➕ เพิ่มยาใหม่ (Update DB)
+    # ----------------------------------------------------
+    elif app_mode == "➕ เพิ่มยาใหม่ (Update DB)":
+        st.subheader("➕ อัปเดตฐานข้อมูล (เพิ่ม Spec ยา)")
+        
+        tab_up, tab_cam = st.tabs(["📂 Upload Spec", "📷 Camera Spec"])
+        spec_input_images = []
+
+        with tab_up:
+            s_files = st.file_uploader("เลือกรูป Spec", accept_multiple_files=True, key="spec_up")
+            if s_files:
+                for f in s_files: spec_input_images.append(Image.open(f))
+
+        with tab_cam:
+            c_col, p_col = st.columns([1,2])
+            with c_col:
+                s_cam = st.camera_input("ถ่าย Spec", key=f"spec_cam_{st.session_state['spec_key']}")
+                if s_cam:
+                    st.session_state['spec_images'].append(Image.open(s_cam))
+                    st.session_state['spec_key'] += 1
+                    st.rerun()
+            with p_col:
+                if st.session_state['spec_images']:
+                    st.image(st.session_state['spec_images'], width=100)
+                    if st.button("🗑️ Clear Spec", on_click=clear_spec_images): st.rerun()
+                    spec_input_images.extend(st.session_state['spec_images'])
+
+        if spec_input_images:
+            if st.button("✨ แกะข้อมูลจากรูป"):
+                with st.spinner("Reading Spec..."):
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    prompt = "Extract Drug Name and Full Spec details. Output format: Name: [Name] ### [Details]"
+                    try:
+                        res = model.generate_content([prompt, *spec_input_images])
+                        parts = res.text.split("###")
+                        st.session_state['new_drug_name'] = parts[0].replace("Name:", "").strip()
+                        st.session_state['new_drug_spec'] = parts[1].strip() if len(parts) > 1 else res.text
+                    except Exception as e: st.error(e)
+
+        if 'new_drug_name' in st.session_state:
+            with st.form("save_db_form"):
+                n_name = st.text_input("Drug Name", value=st.session_state['new_drug_name'])
+                n_spec = st.text_area("Spec Details", value=st.session_state['new_drug_spec'], height=200)
+                if st.form_submit_button("💾 บันทึก"):
+                    if gc:
+                        try:
+                            sh = gc.open_by_url(sheet_url)
+                            sh.sheet1.append_row([datetime.datetime.now().strftime("%Y-%m-%d"), n_name, n_spec])
+                            st.success(f"บันทึก {n_name} สำเร็จ!")
+                            del st.session_state['new_drug_name']
+                            del st.session_state['new_drug_spec']
+                            clear_spec_images()
+                            st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+                    else:
+                        st.error("บันทึกไม่ได้: ไม่พบการตั้งค่า Service Account")
 else:
-    # ถ้ายังไม่เชื่อมต่อ ไม่ต้องทำอะไร (รอ User ใส่ Key)
-    st.write("👈 กรุณาตั้งค่า API Key และ Sheet Link ที่เมนูด้านซ้าย")
+    st.warning("กรุณาใส่ API Key และ Link ใน Secrets หรือ Sidebar")
