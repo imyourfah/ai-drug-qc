@@ -7,13 +7,17 @@ from PIL import Image
 st.set_page_config(page_title="AI QC Super App", page_icon="🧬", layout="wide")
 st.title("🏥 AI Pharma QC: ระบบตรวจ COA (All-in-One)")
 
+# --- ประกาศตัวแปร Global ไว้ก่อน (กัน Error) ---
+active_model = None 
+api_key = None
+sheet_url = None
+
 # --- ระบบความจำสำหรับกล้อง (Session State) ---
 if 'camera_images' not in st.session_state:
-    st.session_state['camera_images'] = [] # อัลบั้มเก็บรูป
+    st.session_state['camera_images'] = [] 
 if 'camera_key' not in st.session_state:
-    st.session_state['camera_key'] = 0     # ตัวรีเซ็ตกล้อง
+    st.session_state['camera_key'] = 0     
 
-# ฟังก์ชันล้างรูป
 def clear_images():
     st.session_state['camera_images'] = []
     st.session_state['camera_key'] += 1
@@ -34,8 +38,8 @@ def get_best_model():
     except:
         return None
 
-# --- ฟังก์ชันช่วย: โหลด Database ---
-@st.cache_data
+# --- ฟังก์ชันช่วย: โหลด Database (เพิ่ม Cache TTL=60 วิ) ---
+@st.cache_data(ttl=60)
 def load_data(url):
     try:
         csv_url = url.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit', '/export?format=csv')
@@ -45,40 +49,53 @@ def load_data(url):
         return None
 
 # ==========================================
-# SIDEBAR: ตั้งค่า & สถานะระบบ
+# SIDEBAR: ตั้งค่า & เชื่อมต่อ
 # ==========================================
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-   # ดึงจาก Secrets แทนการพิมพ์ใส่ตรงๆ
-if "GEMINI_KEY" in st.secrets:
-    api_key = st.secrets["GEMINI_KEY"]
-else:
-    st.error("ไม่พบ API Key ใน Secrets")
+    # 1. พยายามดึง Key จาก Secrets ก่อน
+    if "GEMINI_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_KEY"]
+    else:
+        # ถ้าไม่มีใน Secrets ให้กรอกเอง (สำรอง)
+        api_key = st.text_input("Gemini API Key", type="password")
+
+    # 2. พยายามดึง Link จาก Secrets ก่อน
+    if "SHEET_LINK" in st.secrets:
+        sheet_url = st.secrets["SHEET_LINK"]
+    else:
+        sheet_url = st.text_input("Link Google Sheet")
     
     st.markdown("---")
+    
+    # ปุ่มอัปเดตข้อมูล (Clear Cache)
+    if st.button("🔄 อัปเดตฐานข้อมูล (Refresh)"):
+        st.cache_data.clear()
+        st.rerun()
+
     st.header("📡 System Status")
     
-    active_model = None
-    
+    # 3. เริ่มเชื่อมต่อ (สร้าง active_model ตรงนี้)
     if api_key and sheet_url:
         try:
             genai.configure(api_key=api_key)
-            active_model = get_best_model()
+            active_model = get_best_model() # <--- จุดสำคัญ! ห้ามหาย
             
             if active_model:
                 st.success(f"✅ Connected!")
                 st.info(f"🧠 Model: **{active_model}**")
             else:
                 st.error("❌ API Key ผิด หรือเชื่อมต่อไม่ได้")
-        except:
-             st.error("❌ API Key ผิด")
+        except Exception as e:
+             st.error(f"❌ Connection Error: {e}")
     else:
-        st.warning("⚠️ กรุณาใส่ Key และ Link ในโค้ด")
+        st.warning("⚠️ กรุณาตั้งค่า Key และ Link")
 
 # ==========================================
 # MAIN APP
 # ==========================================
+# ตรวจสอบว่าตัวแปรมีค่าครบไหม
 if active_model and sheet_url:
     # โหลด Database
     df = load_data(sheet_url)
@@ -97,7 +114,7 @@ if active_model and sheet_url:
         
         tab1, tab2 = st.tabs(["📂 อัปโหลดไฟล์ (Upload)", "📷 ถ่ายรูป (Camera)"])
         
-        all_images = [] # ลิสต์รวมรูปที่จะส่งให้ AI
+        all_images = [] 
 
         # Tab 1: Upload File
         with tab1:
@@ -112,7 +129,6 @@ if active_model and sheet_url:
         with tab2:
             col_cam, col_preview = st.columns([1, 2])
             
-            # ด้านซ้าย: กล้องถ่ายรูป
             with col_cam:
                 st.write("📸 **ถ่ายทีละรูป**")
                 pic = st.camera_input("Take Photo", key=f"cam_{st.session_state['camera_key']}")
@@ -122,14 +138,10 @@ if active_model and sheet_url:
                     st.session_state['camera_key'] += 1
                     st.rerun()
 
-            # ด้านขวา: โชว์รูปที่ถ่ายไว้แล้ว
             with col_preview:
                 if st.session_state['camera_images']:
                     st.write(f"✅ ถ่ายไว้แล้ว {len(st.session_state['camera_images'])} รูป")
-                    
-                    # เอารูปจากกล้อง ไปรวมกับ List หลัก (all_images)
                     all_images.extend(st.session_state['camera_images'])
-                    
                     st.image(st.session_state['camera_images'], width=100)
                     
                     if st.button("🗑️ ล้างรูปทั้งหมด", on_click=clear_images):
@@ -140,7 +152,6 @@ if active_model and sheet_url:
             st.markdown("---")
             st.write(f"📂 **พร้อมตรวจสอบทั้งหมด: {len(all_images)} ภาพ**")
             
-            # โชว์รูปเรียงกัน
             cols = st.columns(min(len(all_images), 3))
             for idx, img in enumerate(all_images):
                 with cols[idx % 3]:
@@ -180,4 +191,5 @@ if active_model and sheet_url:
     else:
         st.error("❌ อ่าน Google Sheet ไม่ได้ (เช็ค Link นะครับ)")
 else:
-    st.write("👈 กรุณาตั้งค่าที่แถบด้านซ้าย")
+    # ถ้ายังไม่เชื่อมต่อ ไม่ต้องทำอะไร (รอ User ใส่ Key)
+    st.write("👈 กรุณาตั้งค่า API Key และ Sheet Link ที่เมนูด้านซ้าย")
