@@ -50,9 +50,11 @@ def load_data(url):
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    # Key และ Link ที่คุณระบุมา
-    api_key = "AIzaSyDecXnEY-wlLVjeQLkQyKuxmjLhwHdvr_Q"
-    sheet_url = "https://docs.google.com/spreadsheets/d/1ASUPDJ_p0dV2hCGN4btD3PFGoBJyCBZEbJXs376k8MQ/edit?usp=sharing"
+   # ดึงจาก Secrets แทนการพิมพ์ใส่ตรงๆ
+if "GEMINI_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_KEY"]
+else:
+    st.error("ไม่พบ API Key ใน Secrets")
     
     st.markdown("---")
     st.header("📡 System Status")
