@@ -39,26 +39,36 @@ def load_data(url):
 # ==========================================
 with st.sidebar:
     st.header("⚙️ Configuration")
-    api_key = st.text_input("1. Gemini API Key", type="password")
-    sheet_url = st.text_input("2. Link Google Sheet", help="อย่าลืมเปิด Share เป็น Anyone with link")
+    
+    # --- แก้ตรงนี้: ใส่ Key และ Link ของน้องลงไปในเครื่องหมายคำพูดเลยครับ ---
+    # เช่น api_key = "AIzaSyDxxxxxxxxx"
+    api_key = "AIzaSyDecXnEY-wlLVjeQLkQyKuxmjLhwHdvr_Q"
+    
+    # เช่น sheet_url = "https://docs.google.com/spreadsheets/d/xxxx/edit..."
+    sheet_url = "https://docs.google.com/spreadsheets/d/1ASUPDJ_p0dV2hCGN4btD3PFGoBJyCBZEbJXs376k8MQ/edit?usp=sharing"
+    # -------------------------------------------------------------------
     
     st.markdown("---")
     st.header("📡 System Status")
     
+    # (โค้ดด้านล่างเหมือนเดิม...)
     active_model = None
     
     # เช็คสถานะ API และ Model
-    if api_key:
-        genai.configure(api_key=api_key)
-        active_model = get_best_model()
-        
-        if active_model:
-            st.success(f"✅ Connected!")
-            st.info(f"🧠 Model: **{active_model}**") # <--- โชว์ชื่อรุ่นตรงนี้ครับ
-        else:
-            st.error("❌ API Key ผิด หรือเชื่อมต่อไม่ได้")
+    if api_key and sheet_url:  # เพิ่มเช็ค sheet_url ด้วย
+        try:
+            genai.configure(api_key=api_key)
+            active_model = get_best_model()
+            
+            if active_model:
+                st.success(f"✅ Connected!")
+                st.info(f"🧠 Model: **{active_model}**")
+            else:
+                st.error("❌ API Key ผิด หรือเชื่อมต่อไม่ได้")
+        except:
+             st.error("❌ API Key ผิด")
     else:
-        st.warning("⚠️ รอใส่ API Key")
+        st.warning("⚠️ กรุณาใส่ Key และ Link ในโค้ด")
 
 # ==========================================
 # MAIN APP
