@@ -1,90 +1,72 @@
 import streamlit as st
 import google.generativeai as genai
-import gspread
-from google.oauth2.service_account import Credentials
 import pandas as pd
 from PIL import Image
-import json
 
 # ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="AI Pharma QC", page_icon="💊", layout="wide")
+st.set_page_config(page_title="AI Pharma QC (Easy Mode)", page_icon="💊")
+st.title("🏥 AI Pharma QC: ระบบตรวจ COA (แบบง่าย)")
 
-st.title("🏥 AI Pharma QC: ระบบตรวจสอบ COA อัจฉริยะ")
-st.markdown("---")
-
-# --- SIDEBAR: การตั้งค่า ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ ตั้งค่าระบบ")
-    api_key = st.text_input("1. ใส่ Gemini API Key", type="password")
+    st.header("⚙️ ตั้งค่า")
+    api_key = st.text_input("ใส่ Gemini API Key", type="password")
     
-    st.write("2. อัปโหลดไฟล์กุญแจ (JSON Key) ของ Google Sheet")
-    creds_file = st.file_uploader("เลือกไฟล์ .json", type=["json"])
-    
-    st.info("💡 หมายเหตุ: ระบบไม่ได้บันทึกกุญแจของคุณ ปลอดภัย 100%")
+    # ตรงนี้ให้ใส่ลิ้งค์ Google Sheet ธรรมดาได้เลย
+    sheet_url = st.text_input("แปะลิ้งค์ Google Sheet (Database)", 
+                              help="ต้องเปิด Share เป็น 'Anyone with the link' ก่อนนะ")
+
+# --- ฟังก์ชันโหลดข้อมูลแบบไม่ต้องใช้กุญแจ ---
+@st.cache_data
+def load_data(url):
+    try:
+        # แปลงลิ้งค์ Google Sheet ธรรมดา ให้เป็นลิ้งค์ดาวน์โหลด CSV
+        csv_url = url.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit', '/export?format=csv')
+        df = pd.read_csv(csv_url)
+        return df
+    except Exception as e:
+        return None
 
 # --- MAIN APP ---
-if api_key and creds_file:
-    # 1. Setup AI
+if api_key and sheet_url:
     genai.configure(api_key=api_key)
     
-    # 2. Setup Database
-    try:
-        # อ่านไฟล์ JSON ที่อัปโหลดมา
-        creds_dict = json.load(creds_file)
-        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        gc = gspread.authorize(creds)
-        
-        # เชื่อมต่อ Sheet (แก้ชื่อ Sheet ตรงนี้ถ้าชื่อเปลี่ยน)
-        SHEET_NAME = 'MasterDrugDB' 
-        worksheet = gc.open(SHEET_NAME).sheet1
-        rows = worksheet.get_all_values()
-        df = pd.DataFrame(rows[1:], columns=rows[0])
-        
+    df = load_data(sheet_url)
+    
+    if df is not None:
         st.success(f"✅ เชื่อมต่อ Database สำเร็จ! (พบยา {len(df)} รายการ)")
         
-        # เตรียมข้อมูลให้ AI
+        # เตรียมข้อมูล
         db_context = ""
         for index, row in df.iterrows():
+            # สมมติ Column 1 คือชื่อยา, Column 2 คือ Spec
+            # (ต้องแน่ใจว่าใน Excel เรียงตามนี้ หรือแก้ index เอา)
             db_context += f"Drug: {row[1]} | Spec: {row[2]}\n"
-
-        # 3. ส่วนอัปโหลดและตรวจ QC
-        st.header("📸 ตรวจสอบใบ COA")
-        uploaded_img = st.file_uploader("อัปโหลดรูปภาพ COA", type=["jpg", "png", "jpeg"])
+            
+        # ส่วนอัปโหลดรูป
+        st.header("📸 ตรวจสอบ COA")
+        uploaded_img = st.file_uploader("เลือกรูปใบ COA", type=["jpg", "png"])
         
         if uploaded_img:
             image = Image.open(uploaded_img)
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(image, caption="รูปที่อัปโหลด", use_column_width=True)
+            st.image(image, caption="COA Preview", width=300)
             
-            with col2:
-                if st.button("🚀 เริ่มตรวจสอบ (Start Analyze)", type="primary"):
-                    with st.spinner("🤖 AI กำลังอ่านค่าและตรวจสอบกฎ..."):
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        
-                        prompt = f"""
-                        Role: Expert QC Pharmacist.
-                        Input DB: {db_context}
-                        Task: 
-                        1. Identify Drug Name from image.
-                        2. Find matching Spec in DB.
-                        3. Compare Result vs Spec using Pharma Logic (Ranges, Limits, Ph.Eur Color).
-                        
-                        Output format: Markdown Table.
-                        """
-                        
-                        try:
-                            response = model.generate_content([prompt, image])
-                            st.markdown(response.text)
-                            if "PASS" in response.text:
-                                st.balloons()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-    except Exception as e:
-        st.error(f"❌ เชื่อมต่อ Google Sheet ไม่ได้: {e}")
-        st.warning("ตรวจสอบชื่อไฟล์ JSON หรือชื่อ Sheet ว่าถูกต้องตรงกันหรือไม่")
-
+            if st.button("🚀 ตรวจสอบทันที"):
+                with st.spinner("AI กำลังทำงาน..."):
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    prompt = f"""
+                    Role: QC Pharmacist.
+                    Database Specs: {db_context}
+                    Task: Identify Drug Name, Find Spec, Compare Result.
+                    Rules: Strict Range Check, NMT/NLT Logic, Ph.Eur Color Logic.
+                    Output: Markdown Table with Pass/Fail.
+                    """
+                    try:
+                        response = model.generate_content([prompt, image])
+                        st.markdown(response.text)
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+    else:
+        st.error("❌ อ่าน Google Sheet ไม่ได้ (อย่าลืมเปิด Share เป็น Public นะครับ)")
 else:
-    st.info("👈 กรุณากรอกข้อมูลในแถบซ้ายมือให้ครบเพื่อเริ่มใช้งาน")
+    st.info("👈 กรอกข้อมูลด้านซ้ายให้ครบก่อนครับ")
